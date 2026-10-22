@@ -4,7 +4,7 @@
 
 const CONFIG = {
   // Base map style (Stadia Maps — swap URL for any MapLibre-compatible style)
-  styleUrl: 'https://tiles.stadiamaps.com/styles/alidade_smooth.json',
+  styleUrl: 'https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key=9ab30d3f-6f69-4d6e-a18c-d01ddbd7c52a',
 
   // GeoJSON data paths (relative to web/)
   data: {
@@ -156,7 +156,7 @@ function modifyBasemapLabels(style) {
 Promise.all([
   ...Object.values(CONFIG.data).map(load),
   fetch('img/index.json').then(r => r.ok ? r.json() : {}).catch(() => ({})),
-  fetch(CONFIG.styleUrl).then(r => r.json()).then(modifyBasemapLabels),
+  fetch(CONFIG.styleUrl).then(r => r.json()).then(modifyBasemapLabels).catch(() => CONFIG.styleUrl),
 ]).then(([village, parcels, footprints, historic, imgIndex, mapStyle]) => {
   initMap(village, parcels, footprints, historic, imgIndex, mapStyle);
 })
