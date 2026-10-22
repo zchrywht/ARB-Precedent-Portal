@@ -1,0 +1,4 @@
+geopandas>=1.2.0
+requests>=2.34.0
+shapely>=2.2.0
+pandas>=3.0.0

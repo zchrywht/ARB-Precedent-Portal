@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Head of the Harbor — Building History</title>
+  <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="map.css">
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="panel" id="header">
+  <h1>Village of Head of the Harbor</h1>
+  <p>Suffolk County, New York</p>
+</div>
+
+<div class="panel" id="controls">
+  <div class="ctrl-section">
+    <div class="ctrl-label">Style</div>
+    <div id="style-filters"><!-- populated by JS --></div>
+  </div>
+  <div class="ctrl-section">
+    <div class="ctrl-label">Filter</div>
+    <label class="toggle-row"><input type="checkbox" id="tog-exemplary-only"> Style references only</label>
+  </div>
+</div>
+
+<div class="panel" id="legend"></div>
+
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<script src="map.js"></script>
+
+</body>
+</html>

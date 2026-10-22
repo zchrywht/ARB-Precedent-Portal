@@ -1,0 +1,253 @@
+/* ── Design tokens — edit these to restyle the UI ───────────────────────── */
+:root {
+  /* Panels */
+  --panel-bg:           rgba(255, 255, 255, 0.97);
+  --panel-radius:       0px;                          /* square corners */
+  --panel-border-color: #b9b9b9;                      /* warm rule color */
+  --panel-border:       3px double var(--panel-border-color); /* classic double rule */
+  --panel-shadow:       3px 3px 0px rgba(0, 0, 0, 0.20);     /* crisp drop, down-right */
+  --panel-padding:      12px 14px;
+
+  /* Typography */
+  --font-family:    'EB Garamond', Garamond, 'Times New Roman', serif;
+  --font-size-base: 14px;
+  --text-primary:   #1e293b;
+  --text-secondary: #334155;
+  --text-muted:     #64748b;
+  --text-label:     #94a3b8;
+
+  /* Accent / interactive */
+  --accent:         #3b82f6;
+
+  /* Feature colors */
+  --village-outline-color: #6366f1;
+  --historic-color:        rgba(0,0,0,0.50);
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+}
+
+#map { position: fixed; inset: 0; }
+
+/* ── Panel chrome ────────────────────────────────────────────────────────── */
+.panel {
+  position: absolute;
+  z-index: 10;
+  background: var(--panel-bg);
+  border-radius: var(--panel-radius);
+  border: var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  padding: var(--panel-padding);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+#header { top: 12px; left: 12px; }
+
+#header h1 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+#header p {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ── Controls (top-right) ────────────────────────────────────────────────── */
+#controls { top: 12px; right: 12px; min-width: 170px; }
+
+.ctrl-section { margin-bottom: 10px; }
+.ctrl-section:last-child { margin-bottom: 0; }
+
+.ctrl-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-label);
+  margin-bottom: 6px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.toggle-row:last-child { margin-bottom: 0; }
+.toggle-row input { cursor: pointer; }
+
+/* ── Custom monochrome checkbox ──────────────────────────────────────────── */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--panel-border-color);
+  border-radius: 0;
+  background: transparent;
+  position: relative;
+  flex-shrink: 0;
+  top: 0.5px;
+  transition: background 0.1s, border-color 0.1s;
+}
+input[type="checkbox"]:checked {
+  border-color: var(--text-primary);
+}
+input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: var(--text-primary);
+}
+
+/* ── Custom monochrome radio ─────────────────────────────────────────────── */
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--panel-border-color);
+  border-radius: 50%;
+  background: transparent;
+  position: relative;
+  flex-shrink: 0;
+  top: 0.5px;
+  transition: border-color 0.1s;
+}
+input[type="radio"]:checked {
+  border-color: var(--text-primary);
+}
+input[type="radio"]:checked::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--text-primary);
+}
+
+.filter-count {
+  margin-left: auto;
+  color: var(--text-label);
+  font-size: 11px;
+}
+
+/* ── Legend (bottom-left) ────────────────────────────────────────────────── */
+#legend { bottom: 28px; left: 12px; min-width: 160px; }
+
+#legend h3 {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-label);
+  margin-bottom: 7px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legend-sep {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 6px 0;
+}
+
+/* ── Popup ───────────────────────────────────────────────────────────────── */
+.maplibregl-popup-content {
+  padding: 11px 14px;
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  border-radius: var(--panel-radius);
+  border: var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  line-height: 1.5;
+  min-width: 190px;
+}
+
+.pop-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.pop-subtitle {
+  font-style: italic;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: -3px;
+  margin-bottom: 6px;
+}
+
+.pop-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1px;
+}
+
+.pop-label { color: var(--text-label); white-space: nowrap; }
+.pop-val   { color: var(--text-secondary); text-align: right; }
+
+.pop-links {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pop-links a {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 4px 0;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pop-links a:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.hist-badge {
+  display: inline-block;
+  margin-top: 7px;
+  background: var(--historic-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
