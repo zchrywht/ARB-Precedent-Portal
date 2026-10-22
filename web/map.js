@@ -84,10 +84,82 @@ async function load(path) {
   return r.json();
 }
 
-Promise.all(Object.values(CONFIG.data).map(load))
-  .then(([village, parcels, footprints, historic]) => {
-    initMap(village, parcels, footprints, historic);
-  })
+function toTitleCase(s) {
+  return s.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+function slugify(addr) {
+  return addr.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/, '');
+}
+
+const ADDR_EXPANSIONS = [
+  [/\bNo\b/g,   'North'],
+  [/\bN\b/g,    'North'],
+  [/\bRd\b/g,   'Road'],
+  [/\bSt\b/g,   'Street'],
+  [/\bAve\b/g,  'Avenue'],
+  [/\bDr\b/g,   'Drive'],
+  [/\bLn\b/g,   'Lane'],
+  [/\bCt\b/g,   'Court'],
+  [/\bPl\b/g,   'Place'],
+  [/\bBlvd\b/g, 'Boulevard'],
+  [/\bPat\b/g,  'Path'],
+];
+
+function expandAddr(addr) {
+  let s = addr;
+  for (const [re, full] of ADDR_EXPANSIONS) s = s.replace(re, full);
+  return s;
+}
+
+
+// Scale the output values of an interpolate/step expression, leaving zoom inputs untouched.
+function scaleTextSize(size, factor) {
+  if (typeof size === 'number') return size * factor;
+  if (!Array.isArray(size)) return size;
+  const op = size[0];
+  const r = [...size];
+  if (op === 'interpolate') {
+    // [interpolate, method, input, stop, out, stop, out, ...]  — outputs at even indices ≥ 4
+    for (let i = 4; i < r.length; i += 2)
+      if (typeof r[i] === 'number') r[i] = r[i] * factor;
+  } else if (op === 'step') {
+    // [step, input, default, stop, out, stop, out, ...]  — default at 2, outputs at even indices ≥ 4
+    if (typeof r[2] === 'number') r[2] = r[2] * factor;
+    for (let i = 4; i < r.length; i += 2)
+      if (typeof r[i] === 'number') r[i] = r[i] * factor;
+  }
+  return r;
+}
+
+function modifyBasemapLabels(style) {
+  (style.layers || []).forEach(layer => {
+    if (layer.type !== 'symbol') return;
+    if (!layer.layout) return;
+    if (layer.layout['text-font']) {
+      layer.layout['text-font'] = layer.layout['text-font'].map(f =>
+        f.replace(/\b(Regular|Italic|Semibold|Light|Medium|Thin)\b$/, 'Bold')
+      );
+    }
+    layer.layout['text-letter-spacing'] = 0.33;
+    if (layer.layout['text-size'] !== undefined)
+      layer.layout['text-size'] = scaleTextSize(layer.layout['text-size'], 0.75);
+    if (!layer.paint) layer.paint = {};
+    layer.paint['text-color'] = '#999999';
+    layer.paint['text-halo-color'] = '#ffffff';
+    layer.paint['text-halo-width'] = 2;
+    layer.paint['text-halo-blur'] = 0;
+  });
+  return style;
+}
+
+Promise.all([
+  ...Object.values(CONFIG.data).map(load),
+  fetch('img/index.json').then(r => r.ok ? r.json() : {}).catch(() => ({})),
+  fetch(CONFIG.styleUrl).then(r => r.json()).then(modifyBasemapLabels),
+]).then(([village, parcels, footprints, historic, imgIndex, mapStyle]) => {
+  initMap(village, parcels, footprints, historic, imgIndex, mapStyle);
+})
   .catch(err => {
     document.getElementById('map').innerHTML =
       `<div style="padding:2rem;font:14px monospace;color:#ef4444;background:#fff">
@@ -98,7 +170,7 @@ Promise.all(Object.values(CONFIG.data).map(load))
 
 // ── Map initialisation ────────────────────────────────────────────────────────
 
-function initMap(village, parcels, footprints, historic) {
+function initMap(village, parcels, footprints, historic, imgIndex, mapStyle) {
   // Fit map to village bounding box
   const coords = village.features[0].geometry.coordinates.flat(Infinity);
   const lons = [], lats = [];
@@ -110,10 +182,11 @@ function initMap(village, parcels, footprints, historic) {
 
   const map = new maplibregl.Map({
     container: 'map',
-    style: CONFIG.styleUrl,
+    style: mapStyle,
     bounds,
     fitBoundsOptions: { padding: 56 },
     hash: true,
+    dragRotate: false,
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'bottom-right');
@@ -196,16 +269,12 @@ function initMap(village, parcels, footprints, historic) {
                border:1px solid ${CONFIG.historic.outlineColor}"></div>Historic register
         </div>
         <div class="legend-row">
-          <div class="swatch" style="background:${CONFIG.exemplary.fillColor}"></div>Style reference
+          <div class="swatch" style="background:${CONFIG.exemplary.fillColor}"></div>Style Reference
         </div>`;
       document.getElementById('legend').innerHTML = html;
     })();
 
     // ── Style filter ─────────────────────────────────────────────────────
-    const FILTER_LAYERS = [
-      'parcels-fill', 'parcels-outline',
-      'footprints-fill', 'footprints-stroke', 'footprints-hover',
-    ];
     // Groups that fold multiple BLDG_STYLE_DESC values under one display label.
     // Add entries here to merge more styles without touching the source data.
     const STYLE_GROUPS = {
@@ -236,27 +305,46 @@ function initMap(village, parcels, footprints, historic) {
     styleEntries.forEach(([style, count]) => {
       filterHtml += `<label class="toggle-row">
         <input type="radio" name="style-filter" value="${style}">
-        ${style}<span class="filter-count">${count}</span>
+        ${toTitleCase(style)}<span class="filter-count">${count}</span>
       </label>`;
     });
     document.getElementById('style-filters').innerHTML = filterHtml;
 
+    // ── Filter state — grey out non-matching features rather than hiding them
+    const FILTER_GREY = '#b8b8b8';
+    const FOOTPRINT_COLOR_FULL = ['case',
+      ['!=', ['coalesce', ['get', 'EXEMPLARY'], ''], ''], CONFIG.exemplary.fillColor,
+      ERA_COLOR_EXPR,
+    ];
+    let activeStyleVals = null;
+    let exemplaryOnly   = false;
+
+    function applyFilters() {
+      const preds = [];
+      if (exemplaryOnly) preds.push(['!=', ['coalesce', ['get', 'EXEMPLARY'], ''], '']);
+      if (activeStyleVals) preds.push(['in', ['coalesce', ['get', 'BLDG_STYLE_DESC'], ''], ['literal', activeStyleVals]]);
+      const pred = preds.length === 0 ? null
+        : preds.length === 1 ? preds[0]
+        : ['all', ...preds];
+
+      map.setPaintProperty('parcels-fill', 'fill-color',
+        pred ? ['case', pred, ERA_COLOR_EXPR, FILTER_GREY] : ERA_COLOR_EXPR
+      );
+      map.setPaintProperty('footprints-fill', 'fill-color',
+        pred ? ['case', pred, FOOTPRINT_COLOR_FULL, FILTER_GREY] : FOOTPRINT_COLOR_FULL
+      );
+    }
+
     document.getElementById('style-filters').addEventListener('change', e => {
       const val = e.target.value;
-      let filter = null;
-      if (val) {
-        const values = STYLE_GROUPS[val] ?? [val];
-        filter = ['in', ['coalesce', ['get', 'BLDG_STYLE_DESC'], ''], ['literal', values]];
-      }
-      FILTER_LAYERS.forEach(id => map.setFilter(id, filter));
+      activeStyleVals = val ? (STYLE_GROUPS[val] ?? [val]) : null;
+      applyFilters();
     });
 
     // ── Layer toggles ─────────────────────────────────────────────────────
-    const EXEMPLARY_FILTER = ['!=', ['coalesce', ['get', 'EXEMPLARY'], ''], ''];
     document.getElementById('tog-exemplary-only').addEventListener('change', function () {
-      const f = this.checked ? EXEMPLARY_FILTER : null;
-      ['parcels-fill', 'parcels-outline', 'footprints-fill',
-       'footprints-stroke', 'footprints-hover'].forEach(id => map.setFilter(id, f));
+      exemplaryOnly = this.checked;
+      applyFilters();
     });
 
     // ── Hover highlight ───────────────────────────────────────────────────
@@ -280,11 +368,19 @@ function initMap(village, parcels, footprints, historic) {
     });
 
     // ── Click popup ───────────────────────────────────────────────────────
-    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' });
+    const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '640px' });
+
+
+    map.on('click', e => {
+      const feats = map.queryRenderedFeatures(e.point, { layers: ['footprints-fill'] });
+      if (feats.length === 0) popup.remove();
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') popup.remove(); });
 
     map.on('click', 'footprints-fill', e => {
       const p = e.features[0].properties;
       const addr      = p.PARCEL_ADDR || 'N/A';
+      const dispAddr  = expandAddr(addr);
       const houseName = p.HOUSE_NAME  || '';
       const style = (p.BLDG_STYLE_DESC && p.BLDG_STYLE_DESC !== 'Unknown')
                       ? p.BLDG_STYLE_DESC : 'Not recorded';
@@ -292,28 +388,41 @@ function initMap(village, parcels, footprints, historic) {
       const acres = p.LOT_ACRES != null ? `${p.LOT_ACRES} ac` : '—';
 
       const histFeats = map.queryRenderedFeatures(e.point, { layers: ['historic-fill'] });
+      const imgs = imgIndex[slugify(addr)] || [];
 
-      let html = `<div class="pop-title">${addr}</div>`;
-      if (houseName) html += `<div class="pop-subtitle">${houseName}</div>`;
-      html += popRow('Style',      style);
-      html += popRow('Year built', yr);
-      html += popRow('Lot size',   acres);
-      if (p.PROP_CLASS) html += popRow('Class',  p.PROP_CLASS);
-      if (p.PRINT_KEY)  html += popRow('Parcel', p.PRINT_KEY);
-
+      let infoHtml = houseName
+        ? `<div class="pop-title">${houseName}</div><div class="pop-subtitle">${dispAddr}</div>`
+        : `<div class="pop-title">${dispAddr}</div>`;
+      infoHtml += '<hr class="pop-sep">';
+      infoHtml += popRow('Style',      style);
+      infoHtml += popRow('Year built', yr);
+      infoHtml += popRow('Lot size',   acres);
+      if (p.PROP_CLASS) infoHtml += popRow('Class',  p.PROP_CLASS);
+      if (p.PRINT_KEY)  infoHtml += popRow('Parcel', p.PRINT_KEY);
       if (histFeats.length > 0) {
         const h = histFeats[0].properties;
-        html += `<div class="hist-badge">${h.register_type || 'Historic register'}</div>`;
+        infoHtml += `<div class="hist-badge">${h.register_type || 'Historic register'}</div>`;
         if (h.HistoricName)
-          html += `<div style="margin-top:4px;font-size:11px;color:${CONFIG.historic.outlineColor}">
-                     ${h.HistoricName}</div>`;
+          infoHtml += `<div class="pop-hist-name">${h.HistoricName}</div>`;
       }
 
-      const addrQ  = encodeURIComponent(`${addr} Head of the Harbor NY`);
-      const svUrl  = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${e.lngLat.lat},${e.lngLat.lng}`;
-      html += `<div class="pop-links">
+      let imgsHtml = '';
+      if (imgs.length > 0) {
+        const slug = slugify(addr);
+        imgsHtml = '<div class="pop-imgs-side">';
+        imgs.forEach(f => { imgsHtml += `<img src="img/${slug}/${f}" alt="">`; });
+        imgsHtml += '</div>';
+      }
+
+      const addrQ = encodeURIComponent(`${dispAddr} Head of the Harbor NY`);
+      const svUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${e.lngLat.lat},${e.lngLat.lng}`;
+      const linksHtml = `<div class="pop-links">
         <a href="https://www.google.com/search?q=${addrQ}" target="_blank" rel="noopener">Google Search</a>
         <a href="${svUrl}" target="_blank" rel="noopener">Street View</a>
+      </div>`;
+      const bodyClass = imgs.length > 0 ? 'pop-body has-images' : 'pop-body';
+      const html = `<div class="${bodyClass}">
+        <div class="pop-info">${infoHtml}${linksHtml}</div>${imgsHtml}
       </div>`;
 
       popup.setLngLat(e.lngLat).setHTML(html).addTo(map);

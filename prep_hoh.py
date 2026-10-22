@@ -99,47 +99,106 @@ PAGE_SIZE = 2000
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _read_overrides(csv_path: str, parcels_gdf) -> tuple[dict, dict, dict, dict]:
-    """Read manual_overrides.csv and return (yr, style, exemplary, house_name) dicts keyed by SWIS_SBL_ID.
+def _make_img_dirs(csv_path: str) -> None:
+    """Create web/img/<address>/ for each exemplary row, then write index.json."""
+    img_root = "web/img"
+    os.makedirs(img_root, exist_ok=True)
+    created = 0
+    if not os.path.exists(csv_path):
+        return
+    with open(csv_path, newline="", encoding="utf-8-sig") as _f:
+        for row in _csv.DictReader(_f):
+            if not row.get("EXEMPLARY", "").strip():
+                continue
+            addr = (row.get("PARCEL_ADDR_OVERRIDE") or row.get("PARCEL_ADDR") or "").strip()
+            if not addr:
+                continue
+            slug = re.sub(r"[^a-z0-9]+", "_", addr.lower()).strip("_")
+            path = os.path.join(img_root, slug)
+            if not os.path.exists(path):
+                os.makedirs(path)
+                created += 1
+    # Scan all img dirs and write index.json for the web map
+    _img_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    index = {}
+    for slug_dir in sorted(os.listdir(img_root)):
+        full = os.path.join(img_root, slug_dir)
+        if not os.path.isdir(full):
+            continue
+        imgs = sorted(f for f in os.listdir(full)
+                      if os.path.splitext(f)[1].lower() in _img_exts)
+        if imgs:
+            index[slug_dir] = imgs
+    with open(os.path.join(img_root, "index.json"), "w") as _f:
+        json.dump(index, _f, indent=2)
+    print(f"  image dirs: {created} new folder(s) in {img_root}/, {len(index)} with images indexed")
+
+
+def _read_overrides(csv_path: str, parcels_gdf) -> tuple[dict, dict, dict, dict, dict]:
+    """Read manual_overrides.csv and return (yr, style, exemplary, house_name, addr) dicts keyed by SWIS_SBL_ID.
 
     Excel corrupts long numeric IDs to scientific notation (e.g. 4.73E+25), so
     we match by PARCEL_ADDR as the primary key and look up the real SBL_ID from
     the loaded parcels GeoDataFrame.
     """
-    addr_to_sbl = {
-        str(row["PARCEL_ADDR"]).strip().upper(): row["SWIS_SBL_ID"]
-        for _, row in parcels_gdf.iterrows()
-        if row.get("PARCEL_ADDR")
-    }
+    # Build addr → [sbl, ...] and (addr, lot_acres) → sbl for precise matching
+    addr_to_sbls: dict[str, list] = {}
+    addr_acres_to_sbl: dict[tuple, str] = {}
+    for _, row in parcels_gdf.iterrows():
+        addr  = str(row.get("PARCEL_ADDR") or "").strip().upper()
+        sbl   = row["SWIS_SBL_ID"]
+        acres = str(row.get("LOT_ACRES") or "").strip()
+        if addr:
+            addr_to_sbls.setdefault(addr, []).append(sbl)
+            if acres:
+                addr_acres_to_sbl[(addr, acres)] = sbl
 
     yr_overrides    = {}
     style_overrides = {}
     exemplary       = {}
     house_names     = {}
+    addr_overrides  = {}
 
     if not os.path.exists(csv_path):
-        return yr_overrides, style_overrides, exemplary, house_names
+        return yr_overrides, style_overrides, exemplary, house_names, addr_overrides
 
     with open(csv_path, newline="", encoding="utf-8-sig") as _f:
         for row in _csv.DictReader(_f):
-            # Resolve SBL: prefer address lookup (immune to Excel float conversion)
-            addr = str(row.get("PARCEL_ADDR") or "").strip().upper()
-            sbl  = addr_to_sbl.get(addr) or row.get("SWIS_SBL_ID", "")
-            if not sbl:
-                continue
-            if row.get("YR_BLT_OVERRIDE"):
-                try:
-                    yr_overrides[sbl] = int(row["YR_BLT_OVERRIDE"])
-                except ValueError:
-                    pass
-            if row.get("STYLE_OVERRIDE"):
-                style_overrides[sbl] = row["STYLE_OVERRIDE"].strip()
-            if row.get("EXEMPLARY"):
-                exemplary[sbl] = row["EXEMPLARY"].strip()
-            if row.get("HOUSE_NAME"):
-                house_names[sbl] = row["HOUSE_NAME"].strip()
+            addr      = str(row.get("PARCEL_ADDR") or "").strip().upper()
+            lot_acres = str(row.get("LOT_ACRES") or "").strip()
 
-    return yr_overrides, style_overrides, exemplary, house_names
+            # When a row has PARCEL_ADDR_OVERRIDE it targets exactly ONE parcel.
+            # Identify it by (addr, lot_acres); fall back to the override address
+            # for the --overrides-only case where the GeoJSON already has the new
+            # address and the original addr no longer maps to this parcel.
+            if row.get("PARCEL_ADDR_OVERRIDE"):
+                specific = addr_acres_to_sbl.get((addr, lot_acres))
+                if specific is None:
+                    override_addr = row["PARCEL_ADDR_OVERRIDE"].strip().upper()
+                    specific = addr_acres_to_sbl.get((override_addr, lot_acres))
+                sbls = [specific] if specific else []
+                if specific:
+                    addr_overrides[specific] = row["PARCEL_ADDR_OVERRIDE"].strip()
+            else:
+                # No address override: fan out to all parcels sharing this address.
+                sbls = addr_to_sbls.get(addr) or ([row["SWIS_SBL_ID"]] if row.get("SWIS_SBL_ID") else [])
+
+            for sbl in sbls:
+                if not sbl:
+                    continue
+                if row.get("YR_BLT_OVERRIDE"):
+                    try:
+                        yr_overrides[sbl] = int(row["YR_BLT_OVERRIDE"])
+                    except ValueError:
+                        pass
+                if row.get("STYLE_OVERRIDE"):
+                    style_overrides[sbl] = row["STYLE_OVERRIDE"].strip()
+                if row.get("EXEMPLARY"):
+                    exemplary[sbl] = row["EXEMPLARY"].strip()
+                if row.get("HOUSE_NAME"):
+                    house_names[sbl] = row["HOUSE_NAME"].strip()
+
+    return yr_overrides, style_overrides, exemplary, house_names, addr_overrides
 
 
 def fetch_features(url: str, params: dict) -> gpd.GeoDataFrame:
@@ -280,7 +339,7 @@ if _args.overrides_only:
 
     # Apply overrides (same logic as Step 2a)
     OVERRIDES_CSV = "source-data/manual_overrides.csv"
-    yr_overrides, style_overrides, exemplary, house_names = _read_overrides(OVERRIDES_CSV, parcels)
+    yr_overrides, style_overrides, exemplary, house_names, addr_overrides = _read_overrides(OVERRIDES_CSV, parcels)
 
     if yr_overrides:
         parcels["YR_BLT"] = parcels.apply(
@@ -290,14 +349,18 @@ if _args.overrides_only:
         parcels["BLDG_STYLE_DESC"] = parcels.apply(
             lambda r: style_overrides.get(r["SWIS_SBL_ID"], r["BLDG_STYLE_DESC"]), axis=1
         )
+    if addr_overrides:
+        parcels["PARCEL_ADDR"] = parcels.apply(
+            lambda r: addr_overrides.get(r["SWIS_SBL_ID"], r["PARCEL_ADDR"]), axis=1
+        )
     parcels["EXEMPLARY"]  = parcels["SWIS_SBL_ID"].map(exemplary).fillna("")
     parcels["HOUSE_NAME"] = parcels["SWIS_SBL_ID"].map(house_names).fillna("")
 
     print(f"  overrides: {len(yr_overrides)} year, {len(style_overrides)} style, "
-          f"{len(exemplary)} exemplary, {len(house_names)} house names")
+          f"{len(exemplary)} exemplary, {len(house_names)} house names, {len(addr_overrides)} address")
 
     # Push updated JOIN_FIELDS back onto footprints via SWIS_SBL_ID lookup
-    _update_cols = ["YR_BLT", "BLDG_STYLE_DESC", "EXEMPLARY", "HOUSE_NAME"]
+    _update_cols = ["YR_BLT", "BLDG_STYLE_DESC", "EXEMPLARY", "HOUSE_NAME", "PARCEL_ADDR"]
     _lookup = parcels.set_index("SWIS_SBL_ID")[_update_cols]
     for _col in _update_cols:
         footprints[_col] = footprints["SWIS_SBL_ID"].map(_lookup[_col])
@@ -311,6 +374,7 @@ if _args.overrides_only:
         except PermissionError:
             sys.exit(f"ERROR: cannot write {_path} – close it in VS Code and re-run.")
 
+    _make_img_dirs(OVERRIDES_CSV)
     sys.exit(0)
 
 # ── Step 1: Village boundary ──────────────────────────────────────────────────
@@ -404,7 +468,7 @@ print(f"  after OSM:       {missing_yr} parcels missing YR_BLT")
 
 # ── Manual overrides (manual_overrides.csv) ───────────────────────────────────
 OVERRIDES_CSV = "source-data/manual_overrides.csv"
-yr_overrides, style_overrides, exemplary, house_names = _read_overrides(OVERRIDES_CSV, parcels)
+yr_overrides, style_overrides, exemplary, house_names, addr_overrides = _read_overrides(OVERRIDES_CSV, parcels)
 
 if yr_overrides:
     parcels["YR_BLT"] = parcels.apply(
@@ -414,10 +478,14 @@ if style_overrides:
     parcels["BLDG_STYLE_DESC"] = parcels.apply(
         lambda r: style_overrides.get(r["SWIS_SBL_ID"], r["BLDG_STYLE_DESC"]), axis=1
     )
+if addr_overrides:
+    parcels["PARCEL_ADDR"] = parcels.apply(
+        lambda r: addr_overrides.get(r["SWIS_SBL_ID"], r["PARCEL_ADDR"]), axis=1
+    )
 parcels["EXEMPLARY"]  = parcels["SWIS_SBL_ID"].map(exemplary).fillna("")
 parcels["HOUSE_NAME"] = parcels["SWIS_SBL_ID"].map(house_names).fillna("")
 print(f"  manual overrides: {len(yr_overrides)} year, {len(style_overrides)} style, "
-      f"{len(exemplary)} exemplary, {len(house_names)} house names")
+      f"{len(exemplary)} exemplary, {len(house_names)} house names, {len(addr_overrides)} address")
 
 missing_yr = int((parcels["YR_BLT"].isna() | (parcels["YR_BLT"] == 0)).sum())
 print(f"  after backfill:  {missing_yr} parcels missing YR_BLT")
@@ -546,10 +614,11 @@ if os.path.exists(OVERRIDES_CSV):
     with open(OVERRIDES_CSV, newline="", encoding="utf-8-sig") as _f:
         for row in _csv.DictReader(_f):
             _user_data[row["SWIS_SBL_ID"]] = {
-                "YR_BLT_OVERRIDE": row.get("YR_BLT_OVERRIDE", ""),
-                "STYLE_OVERRIDE":  row.get("STYLE_OVERRIDE", ""),
-                "HOUSE_NAME":      row.get("HOUSE_NAME", ""),
-                "EXEMPLARY":       row.get("EXEMPLARY", ""),
+                "YR_BLT_OVERRIDE":    row.get("YR_BLT_OVERRIDE", ""),
+                "STYLE_OVERRIDE":     row.get("STYLE_OVERRIDE", ""),
+                "HOUSE_NAME":         row.get("HOUSE_NAME", ""),
+                "EXEMPLARY":          row.get("EXEMPLARY", ""),
+                "PARCEL_ADDR_OVERRIDE": row.get("PARCEL_ADDR_OVERRIDE", ""),
             }
 
 # Spatial join: find which parcels fall inside a historic nomination polygon
@@ -582,10 +651,11 @@ for _, p in parcels.iterrows():
         "BLDG_STYLE_DESC": p.get("BLDG_STYLE_DESC") or "",
         "LOT_ACRES":       p.get("LOT_ACRES") or "",
         "HISTORIC_AREA":   _historic_area.get(sbl, ""),
-        "YR_BLT_OVERRIDE": ud.get("YR_BLT_OVERRIDE", ""),
-        "STYLE_OVERRIDE":  ud.get("STYLE_OVERRIDE", ""),
-        "HOUSE_NAME":      ud.get("HOUSE_NAME", ""),
-        "EXEMPLARY":       ud.get("EXEMPLARY", ""),
+        "YR_BLT_OVERRIDE":    ud.get("YR_BLT_OVERRIDE", ""),
+        "STYLE_OVERRIDE":     ud.get("STYLE_OVERRIDE", ""),
+        "HOUSE_NAME":         ud.get("HOUSE_NAME", ""),
+        "EXEMPLARY":          ud.get("EXEMPLARY", ""),
+        "PARCEL_ADDR_OVERRIDE": ud.get("PARCEL_ADDR_OVERRIDE", ""),
     })
 
 def _sort_key(r):
@@ -601,7 +671,7 @@ _rows.sort(key=_sort_key)
 
 _COLS = ["SWIS_SBL_ID", "PARCEL_ADDR", "LOC_ZIP", "PROP_CLASS", "YR_BLT", "BLDG_STYLE_DESC",
          "LOT_ACRES", "HISTORIC_AREA",
-         "YR_BLT_OVERRIDE", "STYLE_OVERRIDE", "HOUSE_NAME", "EXEMPLARY"]
+         "YR_BLT_OVERRIDE", "STYLE_OVERRIDE", "HOUSE_NAME", "EXEMPLARY", "PARCEL_ADDR_OVERRIDE"]
 
 with open(OVERRIDES_CSV, "w", newline="", encoding="utf-8") as _f:
     w = _csv.DictWriter(_f, fieldnames=_COLS)
@@ -610,6 +680,8 @@ with open(OVERRIDES_CSV, "w", newline="", encoding="utf-8") as _f:
 
 _preserved = sum(1 for d in _user_data.values() if any(d.values()))
 print(f"  wrote {OVERRIDES_CSV} ({len(_rows)} rows, {_preserved} with user data preserved)")
+
+_make_img_dirs(OVERRIDES_CSV)
 
 print("\nDone.")
 print(f"  village    -> {OUT_VILLAGE}")
