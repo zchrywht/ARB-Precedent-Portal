@@ -153,6 +153,40 @@ function modifyBasemapLabels(style) {
   return style;
 }
 
+// ── Collapsible panels (filters / legend) — mainly for mobile screens ───────
+function setupPanelToggle(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  const header = panel.querySelector('.panel-header');
+  if (!header) return;
+  header.setAttribute('role', 'button');
+  header.setAttribute('tabindex', '0');
+  header.setAttribute('aria-expanded', 'true');
+  const toggle = () => {
+    const collapsed = panel.classList.toggle('collapsed');
+    header.setAttribute('aria-expanded', String(!collapsed));
+  };
+  header.addEventListener('click', toggle);
+  header.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+  });
+}
+
+['controls', 'legend'].forEach(setupPanelToggle);
+
+// Start collapsed on small screens (mobile) so the map isn't crowded;
+// stay open on desktop where there's room for both panels.
+if (window.matchMedia('(max-width: 680px)').matches) {
+  ['controls', 'legend'].forEach(id => {
+    const panel = document.getElementById(id);
+    if (panel) {
+      panel.classList.add('collapsed');
+      const header = panel.querySelector('.panel-header');
+      if (header) header.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
 Promise.all([
   ...Object.values(CONFIG.data).map(load),
   fetch('img/index.json').then(r => r.ok ? r.json() : {}).catch(() => ({})),
@@ -253,7 +287,7 @@ function initMap(village, parcels, footprints, historic, imgIndex, mapStyle) {
 
     // ── Legend ────────────────────────────────────────────────────────────
     (function buildLegend() {
-      let html = '<h3>Year built</h3>';
+      let html = '';
       ERA_MAP.slice(1).forEach(({ label, color }) => {
         html += `<div class="legend-row">
           <div class="swatch" style="background:${color}"></div>${label}
@@ -271,7 +305,7 @@ function initMap(village, parcels, footprints, historic, imgIndex, mapStyle) {
         <div class="legend-row">
           <div class="swatch" style="background:${CONFIG.exemplary.fillColor}"></div>Style Reference
         </div>`;
-      document.getElementById('legend').innerHTML = html;
+      document.getElementById('legend-body').innerHTML = html;
     })();
 
     // ── Style filter ─────────────────────────────────────────────────────
@@ -425,6 +459,7 @@ function initMap(village, parcels, footprints, historic, imgIndex, mapStyle) {
         <div class="pop-info">${infoHtml}${linksHtml}</div>${imgsHtml}
       </div>`;
 
+      popup.setMaxWidth(window.innerWidth < 640 ? '88vw' : '640px');
       popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
 
@@ -437,6 +472,7 @@ function initMap(village, parcels, footprints, historic, imgIndex, mapStyle) {
       if (h.DateSR)  html += popRow('State Register',  h.DateSR);
       if (h.DateNHL) html += popRow('NHL date',        h.DateNHL);
       if (h.NRNum)   html += popRow('NR number',       h.NRNum);
+      popup.setMaxWidth(window.innerWidth < 640 ? '88vw' : '640px');
       popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
   });

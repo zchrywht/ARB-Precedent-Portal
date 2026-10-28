@@ -18,17 +18,28 @@
 </div>
 
 <div class="panel" id="controls">
-  <div class="ctrl-section">
-    <div class="ctrl-label">Style</div>
-    <div id="style-filters"><!-- populated by JS --></div>
+  <div class="panel-header">
+    <span>Style</span>
+    <span class="panel-toggle" aria-hidden="true">&#9662;</span>
   </div>
-  <div class="ctrl-section">
-    <div class="ctrl-label">Filter</div>
-    <label class="toggle-row"><input type="checkbox" id="tog-exemplary-only"> Style References Only</label>
+  <div class="panel-body">
+    <div class="ctrl-section">
+      <div id="style-filters"><!-- populated by JS --></div>
+    </div>
+    <div class="ctrl-section">
+      <div class="ctrl-label">Filter</div>
+      <label class="toggle-row"><input type="checkbox" id="tog-exemplary-only"> Style References Only</label>
+    </div>
   </div>
 </div>
 
-<div class="panel" id="legend"></div>
+<div class="panel" id="legend">
+  <div class="panel-header">
+    <span>Year built</span>
+    <span class="panel-toggle" aria-hidden="true">&#9662;</span>
+  </div>
+  <div class="panel-body" id="legend-body"></div>
+</div>
 
 <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
 <script src="map.js"></script>

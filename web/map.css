@@ -66,6 +66,36 @@ body {
   margin-top: 5px;
 }
 
+/* ── Collapsible panel header (Style / Year built) ───────────────────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  margin: -6px 0 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-label);
+}
+
+.panel.collapsed .panel-header { margin-bottom: -6px; }
+
+.panel-toggle {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.panel.collapsed .panel-toggle { transform: rotate(-90deg); }
+.panel.collapsed .panel-body   { display: none; }
+
 /* ── Controls (top-right) ────────────────────────────────────────────────── */
 #controls { top: 12px; right: 16px; min-width: 170px; }
 
@@ -151,15 +181,6 @@ input[type="radio"]:checked::after {
 
 /* ── Legend (bottom-left) ────────────────────────────────────────────────── */
 #legend { bottom: 12px; left: 12px; min-width: 160px; }
-
-#legend h3 {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-label);
-  margin-bottom: 7px;
-}
 
 .legend-row {
   display: flex;
@@ -288,4 +309,35 @@ input[type="radio"]:checked::after {
   margin-top: 3px;
   font-size: 12px;
   color: var(--text-primary);
+}
+
+/* ── Mobile layout ───────────────────────────────────────────────────────── */
+@media (max-width: 680px) {
+  :root {
+    --panel-padding: 9px 11px;
+    --pop-img-w: 100%;
+    --pop-img-h: 46vw;
+  }
+
+  /* Keep the three panels from colliding on narrow screens */
+  #header   { max-width: 54vw; padding: 8px 10px; }
+  #header h1 { font-size: 14px; }
+  #header p  { font-size: 11px; margin-top: 3px; }
+
+  #controls { top: 8px; right: 8px; min-width: 0; max-width: 42vw; }
+  #legend   { bottom: 8px; left: 8px; min-width: 0; max-width: 62vw; }
+
+  .ctrl-label { font-size: 9px; }
+  .toggle-row, .legend-row { font-size: 12px; }
+  .filter-count { font-size: 10px; }
+
+  /* Collapsed panels shrink to just their header bar */
+  #controls.collapsed, #legend.collapsed { max-width: none; min-width: 0; }
+
+  /* Popup: stack the image below the details instead of side-by-side */
+  .maplibregl-popup-content { min-width: 0; max-width: 100%; padding: 10px 12px; }
+  .pop-body { flex-direction: column; }
+  .pop-imgs-side { width: 100%; }
+  .pop-imgs-side img { height: var(--pop-img-h); max-height: 220px; }
+  .pop-info { min-width: 0; }
 }
