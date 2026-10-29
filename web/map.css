@@ -16,9 +16,12 @@
   --text-muted:     #64748b;
   --text-label:     #94a3b8;
 
-  /* Popup image panel — 4:3 ratio, adjust height to scale both */
+  /* Popup image panel — 4:3 ratio, adjust height to scale both.
+     --pop-img-ratio drives the mobile sheet, where width flexes to the
+     screen; keep it matching the pop-img-w / pop-img-h ratio above. */
   --pop-img-h: 300px;
   --pop-img-w: 400px;
+  --pop-img-ratio: 4 / 3;
 
   /* Accent / interactive */
   --accent:         #3b82f6;
@@ -237,6 +240,7 @@ input[type="radio"]:checked::after {
   display: block;
   width: 100%;
   height: var(--pop-img-h);
+  aspect-ratio: var(--pop-img-ratio);
   object-fit: cover;
 }
 
@@ -311,12 +315,59 @@ input[type="radio"]:checked::after {
   color: var(--text-primary);
 }
 
+/* ── Mobile info sheet ───────────────────────────────────────────────────── */
+/* On mobile a tap near the middle of the screen would otherwise anchor the
+   popup at that point and push half of it off-screen. Instead, show the
+   building info docked to the bottom of the viewport, independent of where
+   on the map was tapped. Hidden by default; shown only via JS on mobile. */
+.mobile-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  background: var(--panel-bg);
+  border-top: var(--panel-border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
+  padding: 8px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  max-height: 72vh;
+  overflow-y: auto;
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  transform: translateY(100%);
+  transition: transform 0.22s ease-out;
+}
+
+.mobile-sheet.open { transform: translateY(0); }
+
+/* Tapping the handle closes the sheet — give it a generous hit area
+   around the visible bar rather than relying on the bar's own size. */
+.mobile-sheet-handle {
+  display: block;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 10px 0 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.mobile-sheet-handle::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto;
+  background: var(--panel-border-color);
+  border-radius: 2px;
+}
+
 /* ── Mobile layout ───────────────────────────────────────────────────────── */
-@media (max-width: 680px) {
+/* Matches on width OR height so a phone in landscape — which can report a
+   CSS viewport wider than 680px — still gets the compact mobile treatment. */
+@media (max-width: 680px), (max-height: 680px) {
   :root {
     --panel-padding: 9px 11px;
-    --pop-img-w: 100%;
-    --pop-img-h: 46vw;
   }
 
   /* Keep the three panels from colliding on narrow screens */
@@ -334,10 +385,11 @@ input[type="radio"]:checked::after {
   /* Collapsed panels shrink to just their header bar */
   #controls.collapsed, #legend.collapsed { max-width: none; min-width: 0; }
 
-  /* Popup: stack the image below the details instead of side-by-side */
+  /* Popup: stack photo above details instead of side-by-side, keeping the
+     same width:height ratio as the desktop image panel (--pop-img-ratio) */
   .maplibregl-popup-content { min-width: 0; max-width: 100%; padding: 10px 12px; }
   .pop-body { flex-direction: column; }
-  .pop-imgs-side { width: 100%; }
-  .pop-imgs-side img { height: var(--pop-img-h); max-height: 220px; }
+  .pop-imgs-side { width: 100%; order: -1; }
+  .pop-imgs-side img { height: auto; }
   .pop-info { min-width: 0; }
 }

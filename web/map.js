@@ -174,9 +174,12 @@ function setupPanelToggle(panelId) {
 
 ['controls', 'legend'].forEach(setupPanelToggle);
 
-// Start collapsed on small screens (mobile) so the map isn't crowded;
-// stay open on desktop where there's room for both panels.
-if (window.matchMedia('(max-width: 680px)').matches) {
+// Start collapsed on phone-sized screens so the map isn't crowded; stay open
+// on desktop where there's room for both panels. Checked against the smaller
+// of width/height (not just width) so a phone in landscape — which can report
+// a CSS viewport wider than the mobile breakpoint — still counts as mobile.
+const isMobileScreen = Math.min(window.innerWidth, window.innerHeight) <= 680;
+if (isMobileScreen) {
   ['controls', 'legend'].forEach(id => {
     const panel = document.getElementById(id);
     if (panel) {
@@ -401,17 +404,59 @@ function initMap(village, parcels, footprints, historic, imgIndex, mapStyle) {
       }
     });
 
+    // The whole lot is clickable (see below), not just the building footprint,
+    // so show the pointer cursor across the full parcel too.
+    map.on('mousemove', 'parcels-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'parcels-fill', () => { map.getCanvas().style.cursor = ''; });
+
     // ── Click popup ───────────────────────────────────────────────────────
     const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '640px' });
 
+    // On phone-sized screens a tap near the middle of the map would anchor
+    // the popup at that point and run it half off-screen. Show a bottom
+    // sheet instead, docked to the viewport rather than the tapped point.
+    const sheet        = document.getElementById('mobile-sheet');
+    const sheetContent = document.getElementById('mobile-sheet-content');
+    const sheetHandle  = document.getElementById('mobile-sheet-handle');
+
+    function usesMobileSheet() {
+      return Math.min(window.innerWidth, window.innerHeight) <= 680;
+    }
+
+    function hideSheet() {
+      sheet.classList.remove('open');
+      sheet.setAttribute('aria-hidden', 'true');
+    }
+
+    function showInfo(lngLat, html) {
+      if (usesMobileSheet()) {
+        popup.remove();
+        sheetContent.innerHTML = html;
+        sheet.classList.add('open');
+        sheet.setAttribute('aria-hidden', 'false');
+      } else {
+        hideSheet();
+        popup.setMaxWidth('640px');
+        popup.setLngLat(lngLat).setHTML(html).addTo(map);
+      }
+    }
+
+    function closeInfo() {
+      popup.remove();
+      hideSheet();
+    }
+
+    sheetHandle.addEventListener('click', hideSheet);
 
     map.on('click', e => {
-      const feats = map.queryRenderedFeatures(e.point, { layers: ['footprints-fill'] });
-      if (feats.length === 0) popup.remove();
+      const feats = map.queryRenderedFeatures(e.point, { layers: ['parcels-fill'] });
+      if (feats.length === 0) closeInfo();
     });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') popup.remove(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInfo(); });
 
-    map.on('click', 'footprints-fill', e => {
+    // Clicking/tapping anywhere in a lot shows that building's details —
+    // no need to land precisely on the (often small) building footprint.
+    map.on('click', 'parcels-fill', e => {
       const p = e.features[0].properties;
       const addr      = p.PARCEL_ADDR || 'N/A';
       const dispAddr  = expandAddr(addr);
@@ -459,21 +504,7 @@ function initMap(village, parcels, footprints, historic, imgIndex, mapStyle) {
         <div class="pop-info">${infoHtml}${linksHtml}</div>${imgsHtml}
       </div>`;
 
-      popup.setMaxWidth(window.innerWidth < 640 ? '88vw' : '640px');
-      popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
-    });
-
-    map.on('click', 'historic-fill', e => {
-      if (map.queryRenderedFeatures(e.point, { layers: ['footprints-fill'] }).length > 0) return;
-      const h = e.features[0].properties;
-      let html = `<div class="pop-title">${h.HistoricName || 'Historic property'}</div>`;
-      if (h.register_type) html += `<div class="hist-badge">${h.register_type}</div>`;
-      if (h.DateNR)  html += popRow("Nat'l Register", h.DateNR);
-      if (h.DateSR)  html += popRow('State Register',  h.DateSR);
-      if (h.DateNHL) html += popRow('NHL date',        h.DateNHL);
-      if (h.NRNum)   html += popRow('NR number',       h.NRNum);
-      popup.setMaxWidth(window.innerWidth < 640 ? '88vw' : '640px');
-      popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+      showInfo(e.lngLat, html);
     });
   });
 }
